@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saqya – Smart Irrigation from Space</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{--ink:#0B1A17;--ink2:#12302A;--cream:#F3EFE4;--mute:#B9C7C0;--gold:#E8B84A;--line:#2A4A42;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--cream);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.5}
+  header{padding:24px 16px 8px;max-width:760px;margin:0 auto;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  h1{margin:0;font-family:Georgia,"Times New Roman",serif;font-size:40px;color:var(--cream)}
+  .sub{margin:4px 0 0;color:var(--mute)}
+  main{max-width:760px;margin:0 auto;padding:8px 16px 48px}
+  .card{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:16px}
+  h2{margin:0 0 10px;font-size:18px;color:var(--gold);letter-spacing:.5px}
+  label{display:block;margin:12px 0 4px;color:var(--mute);font-size:15px}
+  input,select{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0B1A17;color:var(--cream);font-size:16px}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  button{cursor:pointer;border:0;border-radius:10px;padding:13px 18px;font-size:16px;font-weight:700}
+  .primary{background:var(--gold);color:#0B1A17;width:100%;margin-top:18px}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--cream);margin-top:10px}
+  .lang{background:transparent;border:1px solid var(--gold);color:var(--gold);padding:8px 14px}
+  #map{height:300px;border-radius:12px;margin-bottom:6px;border:1px solid var(--line)}
+  .hint{color:var(--mute);font-size:14px;margin:4px 0 0}
+  .advice{background:var(--gold);color:#0B1A17;border-radius:14px;padding:20px}
+  .advice .big{font-family:Georgia,serif;font-size:28px;font-weight:700;margin:0 0 6px;line-height:1.15}
+  .advice p{margin:4px 0}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:start}
+  th{color:var(--gold)}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .stat{background:#0B1A17;border:1px solid var(--line);border-radius:12px;padding:12px}
+  .stat b{display:block;font-size:22px;color:var(--cream)}
+  .stat span{color:var(--mute);font-size:14px}
+  .err{color:#ffb4a8}
+  .small{font-size:13px;color:var(--mute);margin-top:14px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Saqya</h1>
+    <p class="sub" data-i18n="subtitle"></p>
+  </div>
+  <button class="lang" id="langBtn">العربية</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2 data-i18n="s1"></h2>
+    <div id="map"></div>
+    <p class="hint" data-i18n="mapHint"></p>
+    <div class="row">
+      <div><label data-i18n="lat"></label><input id="lat" type="number" step="0.0001" value="30.0444"></div>
+      <div><label data-i18n="lon"></label><input id="lon" type="number" step="0.0001" value="31.2357"></div>
+    </div>
+    <button class="ghost" id="geoBtn" data-i18n="useLoc"></button>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="s2"></h2>
+    <label data-i18n="crop"></label>
+    <select id="crop"></select>
+    <label data-i18n="area"></label>
+    <input id="area" type="number" min="0" placeholder="1000">
+    <button class="primary" id="goBtn" data-i18n="go"></button>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <h2 data-i18n="s3"></h2>
+    <div id="out"></div>
+  </section>
+
+  <p class="small" data-i18n="about"></p>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ---------- Text (English / Arabic) ---------- */
+const I18N = {
+  en: {
+    subtitle: "Smart irrigation advice from NASA Earth data",
+    s1: "1 · Pick your field", mapHint: "Tap the map to place your field. Green layer: NASA MODIS vegetation index (plant health).",
+    lat: "Latitude", lon: "Longitude", useLoc: "Use my location",
+    s2: "2 · Crop and area", crop: "Crop", area: "Field area in m² (optional)", go: "Get irrigation advice",
+    s3: "Today’s advice",
+    loading: "Fetching NASA data…", fail: "Could not get NASA data. Check your connection and try again.",
+    noData: "NASA has no recent data for this point yet. Try again later.",
+    irrigate: "Irrigate within the next 3 days",
+    amount: "Apply about {mm} mm of water (= {mm} litres per m²).",
+    total: "For {area} m²: about {liters} litres in total.",
+    skip: "No irrigation needed for the next 3 days",
+    skipWhy: "Recent rain covers the crop’s water needs.",
+    etc: "Crop water use", rain: "Rain, last 3 days", et0: "Reference ET₀", kc: "Crop factor Kc",
+    perDay: "mm/day", mm: "mm",
+    date: "Date", tmax: "Max °C", tmin: "Min °C", rainCol: "Rain mm", et0Col: "ET₀ mm",
+    about: "Prototype. Uses NASA POWER daily data (temperature, humidity, wind, solar radiation, rainfall) and the FAO-56 Penman–Monteith method. NASA POWER is coarse (about 50 km), so treat results as an estimate and combine them with local knowledge.",
+    lang: "العربية"
+  },
+  ar: {
+    subtitle: "نصيحة ري ذكية من بيانات ناسا لعلوم الأرض",
+    s1: "١ · اختاري حقلك", mapHint: "اضغطي على الخريطة لتحديد حقلك. الطبقة الخضراء: مؤشر الغطاء النباتي من MODIS التابع لناسا (صحة النبات).",
+    lat: "خط العرض", lon: "خط الطول", useLoc: "استخدمي موقعي",
+    s2: "٢ · المحصول والمساحة", crop: "المحصول", area: "مساحة الحقل بالمتر المربع (اختياري)", go: "احصلي على نصيحة الري",
+    s3: "نصيحة اليوم",
+    loading: "جارٍ جلب بيانات ناسا…", fail: "تعذر الحصول على بيانات ناسا. تأكدي من الاتصال وحاولي مرة أخرى.",
+    noData: "لا توجد بيانات حديثة من ناسا لهذه النقطة بعد. حاولي لاحقاً.",
+    irrigate: "اسقي خلال الأيام الثلاثة القادمة",
+    amount: "أضيفي حوالي {mm} مم من الماء (= {mm} لتر لكل متر مربع).",
+    total: "لمساحة {area} م²: حوالي {liters} لتر إجمالاً.",
+    skip: "لا حاجة للري خلال الأيام الثلاثة القادمة",
+    skipWhy: "الأمطار الأخيرة تغطي احتياج المحصول من الماء.",
+    etc: "استهلاك المحصول للماء", rain: "المطر في آخر 3 أيام", et0: "التبخر المرجعي ET₀", kc: "معامل المحصول Kc",
+    perDay: "مم/يوم", mm: "مم",
+    date: "التاريخ", tmax: "العظمى °م", tmin: "الصغرى °م", rainCol: "مطر مم", et0Col: "ET₀ مم",
+    about: "نسخة تجريبية. تستخدم بيانات NASA POWER اليومية (الحرارة والرطوبة والرياح والإشعاع الشمسي والأمطار) وطريقة FAO-56 بنمان–مونتيث. دقة بيانات NASA POWER منخفضة (حوالي 50 كم)، فاعتبري النتيجة تقديراً واجمعيها مع معرفتك المحلية بالأرض.",
+    lang: "English"
+  }
+};
+
+/* Approximate mid-season crop factors (FAO-56) */
+const CROPS = [
+  { id: "wheat",  kc: 1.15, en: "Wheat",  ar: "قمح" },
+  { id: "maize",  kc: 1.20, en: "Maize",  ar: "ذرة" },
+  { id: "tomato", kc: 1.15, en: "Tomato", ar: "طماطم" },
+  { id: "potato", kc: 1.15, en: "Potato", ar: "بطاطس" },
+  { id: "onion",  kc: 1.05, en: "Onion",  ar: "بصل" },
+  { id: "cotton", kc: 1.15, en: "Cotton", ar: "قطن" },
+  { id: "citrus", kc: 0.70, en: "Citrus", ar: "موالح" }
+];
+
+let lang = "en";
+let lastResult = null;
+const $ = (id) => document.getElementById(id);
+const t = (k, v = {}) => (I18N[lang][k] || k).replace(/\{(\w+)\}/g, (_, n) => v[n]);
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
+  $("langBtn").textContent = t("lang");
+  const sel = $("crop"), cur = sel.value;
+  sel.innerHTML = CROPS.map(c => `<option value="${c.id}">${c[lang]}</option>`).join("");
+  if (cur) sel.value = cur;
+  if (lastResult) render(lastResult);
+}
+
+/* ---------- Map with NASA GIBS vegetation layer ---------- */
+const map = L.map("map").setView([27, 30], 5);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: "© OpenStreetMap"
+}).addTo(map);
+L.tileLayer("https://gitc.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png", {
+  maxNativeZoom: 9, maxZoom: 18, opacity: 0.75, attribution: "NASA GIBS / MODIS"
+}).addTo(map);
+let marker = L.marker([30.0444, 31.2357]).addTo(map);
+map.setView([30.0444, 31.2357], 6);
+
+function setPoint(lat, lon) {
+  $("lat").value = (+lat).toFixed(4);
+  $("lon").value = (+lon).toFixed(4);
+  marker.setLatLng([lat, lon]);
+}
+map.on("click", e => setPoint(e.latlng.lat, e.latlng.lng));
+["lat", "lon"].forEach(id => $(id).addEventListener("change", () => {
+  const la = parseFloat($("lat").value), lo = parseFloat($("lon").value);
+  if (!isNaN(la) && !isNaN(lo)) { marker.setLatLng([la, lo]); map.panTo([la, lo]); }
+}));
+$("geoBtn").addEventListener("click", () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(p => {
+    setPoint(p.coords.latitude, p.coords.longitude);
+    map.setView([p.coords.latitude, p.coords.longitude], 9);
+  });
+});
+
+/* ---------- NASA POWER data ---------- */
+const PARAMS = ["T2M_MAX", "T2M_MIN", "RH2M", "WS2M", "ALLSKY_SFC_SW_DWN", "PRECTOTCORR"];
+
+async function getNasaData(lat, lon) {
+  const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const end = new Date(), start = new Date(Date.now() - 14 * 864e5);
+  const url = "https://power.larc.nasa.gov/api/temporal/daily/point"
+    + `?parameters=${PARAMS.join(",")}&community=AG&longitude=${lon}&latitude=${lat}`
+    + `&start=${fmt(start)}&end=${fmt(end)}&format=JSON`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const p = (await res.json()).properties.parameter;
+  const days = Object.keys(p.T2M_MAX).filter(k => PARAMS.every(n => p[n][k] > -900)).sort();
+  return days.slice(-7).map(k => ({
+    date: k,
+    tmax: p.T2M_MAX[k], tmin: p.T2M_MIN[k], rh: p.RH2M[k],
+    u2: p.WS2M[k], rs: p.ALLSKY_SFC_SW_DWN[k], rain: p.PRECTOTCORR[k]
+  }));
+}
+
+/* ---------- FAO-56 Penman–Monteith reference evapotranspiration ---------- */
+function dayOfYear(s) {
+  const d = Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  return Math.round((d - Date.UTC(+s.slice(0, 4), 0, 0)) / 864e5);
+}
+const e0 = T => 0.6108 * Math.exp(17.27 * T / (T + 237.3));
+
+function et0(day, latDeg) {
+  const { tmax, tmin, rh, u2, rs, date } = day;
+  const tmean = (tmax + tmin) / 2;
+  const es = (e0(tmax) + e0(tmin)) / 2;
+  const ea = rh / 100 * es;
+  const delta = 4098 * e0(tmean) / Math.pow(tmean + 237.3, 2);
+  const gamma = 0.000665 * 101.3;               // sea-level pressure assumed
+  const J = dayOfYear(date), phi = latDeg * Math.PI / 180;
+  const dr = 1 + 0.033 * Math.cos(2 * Math.PI * J / 365);
+  const dec = 0.409 * Math.sin(2 * Math.PI * J / 365 - 1.39);
+  const x = Math.max(-1, Math.min(1, -Math.tan(phi) * Math.tan(dec)));
+  const ws = Math.acos(x);
+  const Ra = (24 * 60 / Math.PI) * 0.0820 * dr *
+    (ws * Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.sin(ws));
+  const Rso = 0.75 * Ra;
+  const ratio = Rso > 0 ? Math.min(rs / Rso, 1) : 0.5;
+  const Rns = 0.77 * rs;
+  const Rnl = 4.903e-9 * (Math.pow(tmax + 273.16, 4) + Math.pow(tmin + 273.16, 4)) / 2
+    * (0.34 - 0.14 * Math.sqrt(ea)) * (1.35 * ratio - 0.35);
+  const Rn = Rns - Rnl;
+  const num = 0.408 * delta * Rn + gamma * 900 / (tmean + 273) * u2 * (es - ea);
+  const den = delta + gamma * (1 + 0.34 * u2);
+  return Math.max(0, num / den);
+}
+
+/* ---------- Advice ---------- */
+function compute(days, lat, crop, area) {
+  const rows = days.map(d => ({ ...d, et0: et0(d, lat) }));
+  const et0avg = rows.reduce((s, r) => s + r.et0, 0) / rows.length;
+  const etc = et0avg * crop.kc;
+  const rain3 = rows.slice(-3).reduce((s, r) => s + r.rain, 0);
+  const need = 3 * etc - 0.8 * rain3;           // 3-day demand minus effective rain
+  return { rows, et0avg, etc, rain3, need, kc: crop.kc, area };
+}
+
+function render(r) {
+  const f1 = n => n.toFixed(1);
+  let advice;
+  if (r.need > 0.5) {
+    const mm = Math.round(r.need);
+    advice = `<p class="big">${t("irrigate")}</p><p>${t("amount", { mm })}</p>`
+      + (r.area > 0 ? `<p>${t("total", { area: r.area, liters: Math.round(mm * r.area).toLocaleString() })}</p>` : "");
+  } else {
+    advice = `<p class="big">${t("skip")}</p><p>${t("skipWhy")}</p>`;
+  }
+  const rows = r.rows.map(x => {
+    const d = `${x.date.slice(6, 8)}/${x.date.slice(4, 6)}`;
+    return `<tr><td>${d}</td><td>${f1(x.tmax)}</td><td>${f1(x.tmin)}</td><td>${f1(x.rain)}</td><td>${f1(x.et0)}</td></tr>`;
+  }).join("");
+  $("out").innerHTML = `
+    <div class="advice">${advice}</div>
+    <div class="stats">
+      <div class="stat"><b>${f1(r.etc)} ${t("perDay")}</b><span>${t("etc")}</span></div>
+      <div class="stat"><b>${f1(r.rain3)} ${t("mm")}</b><span>${t("rain")}</span></div>
+      <div class="stat"><b>${f1(r.et0avg)} ${t("perDay")}</b><span>${t("et0")}</span></div>
+      <div class="stat"><b>${r.kc}</b><span>${t("kc")}</span></div>
+    </div>
+    <table>
+      <tr><th>${t("date")}</th><th>${t("tmax")}</th><th>${t("tmin")}</th><th>${t("rainCol")}</th><th>${t("et0Col")}</th></tr>
+      ${rows}
+    </table>`;
+}
+
+$("goBtn").addEventListener("click", async () => {
+  const lat = parseFloat($("lat").value), lon = parseFloat($("lon").value);
+  if (isNaN(lat) || isNaN(lon)) return;
+  const crop = CROPS.find(c => c.id === $("crop").value);
+  const area = parseFloat($("area").value) || 0;
+  $("result").hidden = false;
+  $("out").innerHTML = `<p>${t("loading")}</p>`;
+  lastResult = null;
+  try {
+    const days = await getNasaData(lat, lon);
+    if (!days.length) { $("out").innerHTML = `<p class="err">${t("noData")}</p>`; return; }
+    lastResult = compute(days, lat, crop, area);
+    render(lastResult);
+  } catch (e) {
+    $("out").innerHTML = `<p class="err">${t("fail")}</p>`;
+  }
+});
+
+$("langBtn").addEventListener("click", () => { lang = lang === "en" ? "ar" : "en"; applyLang(); });
+applyLang();
+</script>
+</body>
+</html>
